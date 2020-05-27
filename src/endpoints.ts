@@ -32,3 +32,30 @@ publicRouter.post('/api/users', async (ctx) => {
     ctx.throw(406, 'User already exist');
   }
 });
+
+publicRouter.post('/api/auth', async (ctx) => {
+  const base64_creds = ctx.header.authorization.split(' ')[1];
+  const str_creds = Buffer.from(base64_creds, 'base64').toString();
+  const [email, password] = str_creds.split(':');
+
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    ctx.throw(401, 'Bad email');
+  }
+
+  const { _id, name } = user;
+  if (await bcrypt.compare(password, user.password)) {
+    ctx.body = {
+      token: jsonwebtoken.sign(
+        {
+          data: { _id, name, email },
+          exp: Math.floor(Date.now() / 1000) - 60 * 60, // 1 hour
+        },
+        'shared-secret',
+      ),
+    };
+  } else {
+    ctx.throw(401, 'Bad password');
+  }
+});
