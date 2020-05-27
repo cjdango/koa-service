@@ -24,7 +24,8 @@
     "koa-json": "^2.0.2",
     "koa-jwt": "^4.0.0",
     "koa-logger": "^3.2.1",
-    "koa-router": "^8.0.8"
+    "koa-router": "^8.0.8",
+    "mongoose": "^5.9.16"
   },
   "devDependencies": {
     "@types/bcrypt": "^3.0.0",
@@ -36,6 +37,7 @@
     "@types/koa-logger": "^3.1.1",
     "@types/koa-router": "^7.4.1",
     "@types/mocha": "^7.0.2",
+    "@types/mongoose": "^5.7.21",
     "@typescript-eslint/eslint-plugin": "^3.0.0",
     "@typescript-eslint/parser": "^3.0.0",
     "chai": "^4.2.0",
