@@ -1,12 +1,13 @@
 import app from '../src/app';
 import request from 'supertest';
-import mongoose, { mongo } from 'mongoose';
+import mongoose from 'mongoose';
+import bcrypt from 'bcrypt';
 
 import { User } from '../src/models';
 
 describe('Rest endpoints', () => {
-  beforeAll(() => {
-    mongoose
+  beforeAll(async () => {
+    return mongoose
       .connect('mongodb://127.0.0.1:27017/test', {
         useNewUrlParser: true,
         useUnifiedTopology: true,
@@ -23,7 +24,7 @@ describe('Rest endpoints', () => {
   });
 
   afterEach(async () => {
-    User.collection.drop().catch(() => {
+    return User.collection.drop().catch(() => {
       console.log('No collection to drop');
     });
   });
@@ -58,6 +59,44 @@ describe('Rest endpoints', () => {
       const resp = await request(app.callback()).post('/api/users').send(payload);
 
       expect(resp.status).toBe(406);
+    });
+  });
+
+  describe('/api/auth', () => {
+    test('POST should return valid token', async () => {
+      const userData = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
+      const base64_creds = Buffer.from(`${userData.email}:${userData.password}`).toString('base64');
+
+      await User.create({ ...userData, password: await bcrypt.hash(userData.password, 5) });
+
+      const resp = await request(app.callback()).post('/api/auth').set('Authorization', `Basic ${base64_creds}`).send();
+
+      expect(resp.status).toBe(200);
+      expect(resp.body.token).toBeTruthy();
+    });
+
+    test('POST should return 401 for bad email', async () => {
+      const userData = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
+      const base64_creds = Buffer.from(`wrong@mail.com:${userData.password}`).toString('base64');
+
+      await User.create({ ...userData, password: await bcrypt.hash(userData.password, 5) });
+
+      const resp = await request(app.callback()).post('/api/auth').set('Authorization', `Basic ${base64_creds}`).send();
+
+      expect(resp.status).toBe(401);
+      expect(resp.body.error).toBe('Bad email');
+    });
+
+    test('POST should return 401 for bad password', async () => {
+      const userData = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
+      const base64_creds = Buffer.from(`${userData.email}:wrongpassword`).toString('base64');
+
+      await User.create({ ...userData, password: await bcrypt.hash(userData.password, 5) });
+
+      const resp = await request(app.callback()).post('/api/auth').set('Authorization', `Basic ${base64_creds}`).send();
+
+      expect(resp.status).toBe(401);
+      expect(resp.body.error).toBe('Bad password');
     });
   });
 });
