@@ -5,6 +5,17 @@ import bcrypt from 'bcrypt';
 
 import { User } from '../src/models';
 
+const testUserData = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
+
+const createUser = async (payload) => {
+  return request(app.callback()).post('/api/users').send(payload);
+};
+
+const authenticateUser = async (email: string, password: string) => {
+  const base64_creds = Buffer.from(`${email}:${password}`).toString('base64');
+  return request(app.callback()).post('/api/auth').set('Authorization', `Basic ${base64_creds}`).send();
+};
+
 describe('Rest endpoints', () => {
   beforeAll(async () => {
     return mongoose
@@ -35,65 +46,121 @@ describe('Rest endpoints', () => {
 
   describe('/api/users', () => {
     test('POST should create users', async () => {
-      const payload = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
-      const resp = await request(app.callback()).post('/api/users').send(payload);
+      const resp = await createUser(testUserData);
 
       expect(resp.status).toBe(201);
-      expect(resp.body.user.email).toBe(payload.email);
-      expect(resp.body.user.name).toBe(payload.name);
+      expect(resp.body.user.email).toBe(testUserData.email);
+      expect(resp.body.user.name).toBe(testUserData.name);
       expect(resp.body.user._id).toBeTruthy();
     });
 
     test('POST should return 400 for bad request', async () => {
-      const payload = { email: 'testuser@mail.com', name: 'testuser', pass: 'testpassword' };
-      const resp = await request(app.callback()).post('/api/users').send(payload);
+      const { email, name, password } = testUserData;
+      const resp = await createUser({ email, name, pass: password });
 
       expect(resp.status).toBe(400);
     });
 
     test('POST should return 406 if email already exist', async () => {
-      const payload = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
+      await User.create(testUserData);
 
-      await User.create(payload);
-
-      const resp = await request(app.callback()).post('/api/users').send(payload);
+      const resp = await createUser(testUserData);
 
       expect(resp.status).toBe(406);
+    });
+
+    test('GET should get all users', async () => {
+      await createUser(testUserData);
+
+      const authResp = await authenticateUser(testUserData.email, testUserData.password);
+      const userToken = authResp.body.token;
+
+      const resp = await request(app.callback()).get(`/api/users`).set('Authorization', `Bearer ${userToken}`).send();
+
+      expect(Array.isArray(resp.body.users)).toBe(true);
+      expect(resp.body.users.length).toBeGreaterThanOrEqual(1);
+      expect(resp.status).toBe(200);
+    });
+
+    test('PATCH should update own info', async () => {
+      const createResp = await createUser(testUserData);
+
+      const authResp = await authenticateUser(testUserData.email, testUserData.password);
+      const userToken = authResp.body.token;
+
+      const email = 'new@mail.com';
+      const password = 'newpassword';
+
+      const resp = await request(app.callback())
+        .patch(`/api/users`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ password, email });
+
+      const updatedUser = await User.findById(resp.body.user._id);
+
+      expect(resp.body.user._id).toBe(createResp.body.user._id);
+      expect(updatedUser.email).toBe(email);
+      expect(await bcrypt.compare(password, updatedUser.password)).toBe(true);
+      expect(resp.status).toBe(200);
+    });
+
+    test('GET /api/users/:id should get a user info', async () => {
+      const createResp = await createUser(testUserData);
+      const authResp = await authenticateUser(testUserData.email, testUserData.password);
+
+      const userID = createResp.body.user._id;
+      const userToken = authResp.body.token;
+
+      const resp = await request(app.callback())
+        .get(`/api/users/${userID}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send();
+
+      expect(resp.body.user._id).toBeTruthy();
+      expect(resp.body.user.email).toBe(testUserData.email);
+      expect(resp.body.user.name).toBe(testUserData.name);
+      expect(resp.status).toBe(200);
+    });
+
+    test('GET /api/users/:id should return 404 if user not found', async () => {
+      await createUser(testUserData);
+
+      const authResp = await authenticateUser(testUserData.email, testUserData.password);
+      const userToken = authResp.body.token;
+
+      const resp = await request(app.callback())
+        .get(`/api/users/NonExistentID`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send();
+
+      expect(resp.body.error).toBe('User not found');
+      expect(resp.status).toBe(404);
     });
   });
 
   describe('/api/auth', () => {
     test('POST should return valid token', async () => {
-      const userData = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
-      const base64_creds = Buffer.from(`${userData.email}:${userData.password}`).toString('base64');
+      await createUser(testUserData);
 
-      await User.create({ ...userData, password: await bcrypt.hash(userData.password, 5) });
-
-      const resp = await request(app.callback()).post('/api/auth').set('Authorization', `Basic ${base64_creds}`).send();
+      const resp = await authenticateUser(testUserData.email, testUserData.password);
 
       expect(resp.status).toBe(200);
       expect(resp.body.token).toBeTruthy();
     });
 
     test('POST should return 401 for bad email', async () => {
-      const userData = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
-      const base64_creds = Buffer.from(`wrong@mail.com:${userData.password}`).toString('base64');
+      await createUser(testUserData);
 
-      await User.create({ ...userData, password: await bcrypt.hash(userData.password, 5) });
-
-      const resp = await request(app.callback()).post('/api/auth').set('Authorization', `Basic ${base64_creds}`).send();
+      const resp = await authenticateUser('wrong@mail.com', testUserData.password);
 
       expect(resp.status).toBe(401);
       expect(resp.body.error).toBe('Bad email');
     });
 
     test('POST should return 401 for bad password', async () => {
-      const userData = { email: 'testuser@mail.com', name: 'testuser', password: 'testpassword' };
-      const base64_creds = Buffer.from(`${userData.email}:wrongpassword`).toString('base64');
+      await createUser(testUserData);
 
-      await User.create({ ...userData, password: await bcrypt.hash(userData.password, 5) });
-
-      const resp = await request(app.callback()).post('/api/auth').set('Authorization', `Basic ${base64_creds}`).send();
+      const resp = await authenticateUser(testUserData.email, 'wrongpassword');
 
       expect(resp.status).toBe(401);
       expect(resp.body.error).toBe('Bad password');

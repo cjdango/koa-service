@@ -50,12 +50,49 @@ publicRouter.post('/api/auth', async (ctx) => {
       token: jsonwebtoken.sign(
         {
           data: { _id, name, email },
-          exp: Math.floor(Date.now() / 1000) - 60 * 60, // 1 hour
         },
         'shared-secret',
+        { expiresIn: '1h' },
       ),
     };
   } else {
     ctx.throw(401, 'Bad password');
+  }
+});
+
+// Protected endpoints
+protectedRouter.patch('/api/users', async (ctx) => {
+  const { password, email, name } = ctx.request.body;
+  const authEmail = ctx.state.user.data.email;
+
+  const user = await User.findOne({ email: authEmail });
+
+  if (user) {
+    if (email) user.email = email;
+    if (name) user.name = name;
+    if (password) user.password = await bcrypt.hash(password, 5);
+
+    user.save();
+
+    ctx.body = { message: 'success', user: { _id: user._id, email: user.email, name: user.name } };
+  } else {
+    ctx.throw(403, "Can't do that");
+  }
+});
+
+protectedRouter.get('/api/users', async (ctx) => {
+  const users = await User.find({}, '_id name email');
+  ctx.body = {
+    message: 'success',
+    users,
+  };
+});
+
+protectedRouter.get('/api/users/:id', async (ctx) => {
+  try {
+    const { _id, name, email } = await User.findById(ctx.params.id);
+    ctx.body = { message: 'success', user: { _id, name, email } };
+  } catch (err) {
+    ctx.throw(404, 'User not found');
   }
 });
